@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Particle Eagle Banner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --page:   #000;
+    --ink:    #02030a;
+    --ai:     #1fc9c3;
+    --design: #8b5cf6;
+    --code:   #4f7cff;
+    --ideas:  #d02be0;
+    --systems:#4d5e99;
+    --auto:   #f0223f;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--page); }
+  body { display: grid; place-items: center; overflow-x: hidden; }
+
+  /* ---------- banner shell ---------- */
+  .banner {
+    position: relative;
+    width: min(100vw, 1983px);
+    aspect-ratio: 1983 / 793;          /* same ratio as the reference image */
+    background: var(--ink);
+    overflow: hidden;
+    isolation: isolate;
+  }
+  @media (max-width: 720px) {
+    .banner { aspect-ratio: 16 / 10; }
+  }
+
+  #scene {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+    touch-action: pan-y;               /* page still scrolls vertically on touch */
+  }
+
+  /* soft blue atmosphere behind the bird */
+  .haze {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(55% 75% at 51% 50%, rgba(28, 48, 130, .16), transparent 72%);
+    mix-blend-mode: screen;
+  }
+
+  /* CRT scanlines */
+  .scan {
+    position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(to bottom, rgba(255,255,255,.028) 0 1px, transparent 1px 3px);
+    mix-blend-mode: screen;
+  }
+
+  /* thin HUD frame + top-right corner mark */
+  .frame {
+    position: absolute; inset: 2% 1.1%;
+    border: 1px solid rgba(90, 110, 160, .22);
+    pointer-events: none;
+  }
+  .frame::after {
+    content: ""; position: absolute; top: -1px; right: -1px;
+    width: 1.6%; aspect-ratio: 1;
+    border-top: 2px solid rgba(130, 160, 220, .5);
+    border-right: 2px solid rgba(130, 160, 220, .5);
+  }
+
+  /* ---------- floating keywords ---------- */
+  .tag {
+    position: absolute;
+    left: var(--x); top: var(--y);
+    transform: translateY(-50%);
+    font: 500 clamp(9px, .68vw, 14px) / 1 "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    letter-spacing: .14em;
+    color: var(--c);
+    text-shadow: 0 0 10px color-mix(in srgb, var(--c) 55%, transparent);
+    opacity: .92;
+    animation: float 7s ease-in-out var(--d, 0s) infinite;
+    transition: text-shadow .25s, opacity .25s;
+    user-select: none;
+  }
+  .tag:hover {
+    opacity: 1;
+    text-shadow: 0 0 6px var(--c), 0 0 22px var(--c);
+  }
+  .tag:focus-visible { outline: 1px dashed var(--c); outline-offset: 6px; }
+  @keyframes float {
+    0%, 100% { transform: translateY(-50%); }
+    50%      { transform: translateY(calc(-50% - .5em)); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tag { animation: none; }
+  }
+</style>
+</head>
+
+<body>
+  <main class="banner" id="banner" aria-label="Particle eagle banner: AI, design, code, ideas, systems, automation">
+    <canvas id="scene" role="img" aria-label="Eagle with spread wings drawn from glowing particles"></canvas>
+    <div class="haze"></div>
+    <div class="scan"></div>
+    <div class="frame"></div>
+
+    <!-- --x / --y = position in %, --c = colour, --d = float delay -->
+    <span class="tag" tabindex="0" style="--x:6.25%; --y:10.1%; --c:var(--ai);      --d:0s">AI</span>
+    <span class="tag" tabindex="0" style="--x:4%;    --y:44.4%; --c:var(--design);  --d:-2s">DESIGN</span>
+    <span class="tag" tabindex="0" style="--x:5.2%;  --y:54%;   --c:var(--code);    --d:-4s">CODE</span>
+    <span class="tag" tabindex="0" style="--x:33%;   --y:80%;   --c:var(--ideas);   --d:-1s">IDEAS</span>
+    <span class="tag" tabindex="0" style="--x:91%;   --y:16.4%; --c:var(--systems); --d:-3s">SYSTEMS</span>
+    <span class="tag" tabindex="0" style="--x:87.7%; --y:81.6%; --c:var(--auto);    --d:-5s">AUTOMATION</span>
+  </main>
+
+<script>
+(() => {
+  'use strict';
+
+  /* =====================================================================
+     CONFIG – yahan se look & feel tweak karo
+     ===================================================================== */
+  const CFG = {
+    seed: 7,               // same seed = same eagle every time
+    assembleSeconds: 3.2,  // particles kitni der mein eagle banate hain
+    flap: 0.075,           // wing flap height (0 = off)
+    flapSpeed: 1.9,        // flap speed (radians/sec) - bada = tez
+    streams: 150,          // wingtip energy particles per second (0 = off)
+    headFollow: true,      // head + eye cursor ko follow kare
+    mouseRadius: 0.16,     // cursor repel radius (eagle size ka fraction)
+    mouseForce: 10,        // repel strength
+    burstForce: 22,        // click burst strength
+    bloom: true,           // glow on/off
+    glow: 0.2              // glow strength: 0 = none, 1 = purana (strong) glow
+  };
+
+  /* =====================================================================
+     DOM + canvas
+     ===================================================================== */
+  const banner = document.getElementById('banner');
+  const canvas = document.getElementById('scene');
+  const ctx    = canvas.getContext('2d', { alpha: false });
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // half / quarter / eighth-size canvases used to fake a bloom (cheap & Safari-safe)
+  const mk = () => { const c = document.createElement('canvas'); return [c, c.getContext('2d', { alpha: false })]; };
+  const [b1, b1x] = mk(), [b2, b2x] = mk(), [b3, b3x] = mk();
+
+  /* =====================================================================
+     tiny helpers
+     ===================================================================== */
+  function mulberry32(a) {
+    return () => {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  const rnd  = mulberry32(CFG.seed);
+  const R    = (a = 0, b = 1) => a + (b - a) * rnd();
+  const G    = () => (rnd() + rnd() + rnd() - 1.5) / 1.5;          // ~gaussian, -1..1
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const lerp  = (a, b, t) => a + (b - a) * t;
+  const sstep = (a, b, x) => { x = clamp((x - a) / (b - a), 0, 1); return x * x * (3 - 2 * x); };
+
+  // neon palette: cyan -> blue -> violet -> magenta -> red
+  const STOPS = [[70, 215, 255], [70, 125, 255], [150, 90, 255], [236, 62, 222], [255, 52, 88]];
+  function pal(h) {
+    h = clamp(h, 0, 1) * (STOPS.length - 1);
+    const i = Math.min(STOPS.length - 2, h | 0), f = h - i, a = STOPS[i], b = STOPS[i + 1];
+    return [lerp(a[0], b[0], f), lerp(a[1], b[1], f), lerp(a[2], b[2], f)];
+  }
+
+  // Catmull-Rom spline through pts, u in 0..1
+  function spline(pts, u) {
+    const n = pts.length - 1, f = clamp(u, 0, 1) * n, i = Math.min(n - 1, f | 0), t = f - i;
+    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(n, i + 2)];
+    const t2 = t * t, t3 = t2 * t;
+    return [0, 1].map(k => 0.5 * (2 * p1[k] + (-p0[k] + p2[k]) * t +
+      (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3));
+  }
+  function bezier(p0, p1, p2, p3, t) {
+    const u = 1 - t, a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+    return [a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0], a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1]];
+  }
+  function inPoly(poly, x, y) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  function randomInPoly(poly) {
+    let x0 = 9, x1 = -9, y0 = 9, y1 = -9;
+    for (const [x, y] of poly) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    for (let n = 0; n < 60; n++) {
+      const x = R(x0, x1), y = R(y0, y1);
+      if (inPoly(poly, x, y)) return [x, y];
+    }
+    return [(x0 + x1) / 2, (y0 + y1) / 2];
+  }
+
+  /* =====================================================================
+     PARTICLE STORE
+     Sab kuch "unit space" mein banta hai: x = -1..1 (wingspan), y = -0.55..0.55.
+     Baad mein resize par pixels mein scale hota hai.
+     ===================================================================== */
+  const bannerW0 = banner.getBoundingClientRect().width || 1200;
+  const DENS = clamp(bannerW0 / 1500, 0.5, 1.1);          // chhoti screen = kam particles
+
+  const PX = [], PY = [], PR = [], PG = [], PB = [], PS = [];
+
+  function add(x, y, gray, tint = 0, hue = 0, size = 1, boost = 1) {
+    let r = gray, g = gray * 1.03, b = gray * 1.1;         // slightly cool grey
+    if (tint > 0) {
+      const c = pal(hue);
+      r = lerp(r, c[0], tint); g = lerp(g, c[1], tint); b = lerp(b, c[2], tint);
+    }
+    PX.push(x); PY.push(y);
+    PR.push(clamp(r * boost, 0, 255)); PG.push(clamp(g * boost, 0, 255)); PB.push(clamp(b * boost, 0, 255));
+    PS.push(size);
+  }
+
+  /* =====================================================================
+     FEATHER – ek shaft + dono taraf barbs, sab dots se bana hua
+     ===================================================================== */
+  function feather(bx, by, tx, ty, o = {}) {
+    const dx = tx - bx, dy = ty - by, len = Math.hypot(dx, dy);
+    if (len < 1e-4) return;
+    const ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
+
+    const width  = o.w ?? len * 0.14;
+    const bend   = (o.bend || 0) * len;
+    const dens   = (o.dens ?? 1) * DENS;
+    const tint0  = o.tint0 ?? 0.55;       // feather ke kis hisse se colour shuru ho
+    const tintMax= o.tintMax ?? 0.9;
+    const spark  = o.spark ?? 0.05;       // random coloured specks
+    const warm   = o.warm ?? 0.04;        // red / magenta specks
+    const hue0   = o.hue ?? 0.3;
+    const gain   = o.gain ?? 1;
+    const nb     = o.nb ?? 3;             // dots per barb
+
+    const nShaft = Math.max(3, Math.round(len * 130 * dens));
+    const nBarb  = Math.max(2, Math.round(len * 55 * dens));
+
+    const at    = s => { const off = bend * Math.sin(Math.PI * s); return [bx + ux * len * s + nx * off, by + uy * len * s + ny * off]; };
+    const hueOf = () => rnd() < warm ? R(0.82, 1) : clamp(hue0 + G() * 0.18, 0, 1);
+    const tintOf = s => { let t = tintMax * sstep(tint0, 1, s); if (rnd() < spark) t = Math.max(t, R(0.5, 1)); return t; };
+
+    // shaft
+    for (let k = 0; k < nShaft; k++) {
+      const s = k / (nShaft - 1), p = at(s);
+      add(p[0] + G() * 0.0012, p[1] + G() * 0.0012, R(150, 255) * gain, tintOf(s), hueOf(), 1);
+    }
+    // bright sparkle at the very tip
+    if (rnd() < (o.tipP ?? 0.55)) { const p = at(1); add(p[0], p[1], 255, R(0.3, 0.9), hueOf(), 2, 1.4); }
+
+    // barbs
+    for (let k = 0; k < nBarb; k++) {
+      const s = 0.05 + 0.95 * (k + rnd()) / nBarb;
+      const p = at(s), bl = width * (1 - 0.5 * s) * R(0.6, 1);
+      for (let side = -1; side <= 1; side += 2) {
+        const a = 0.85 + G() * 0.18;                          // barbs sweep toward the tip
+        const dxb = ux * Math.cos(a) + nx * side * Math.sin(a);
+        const dyb = uy * Math.cos(a) + ny * side * Math.sin(a);
+        const h = hueOf(), t = tintOf(s) * 0.85;
+        for (let m = 1; m <= nb; m++) {
+          const d = bl * m / nb;
+          add(p[0] + dxb * d + G() * 0.001, p[1] + dyb * d + G() * 0.001,
+              R(35, 150) * (1 - 0.3 * m / nb) * gain, t, h, 1);
+        }
+      }
+    }
+  }
+
+  /* =====================================================================
+     WINGS  (right wing define hota hai, left uska mirror hai)
+     B = wing ke "arm" ka base curve, T = feather tips ka trailing curve
+     ===================================================================== */
+  const WB = [[0.11, -0.13], [0.22, -0.19], [0.34, -0.25], [0.42, -0.28], [0.46, -0.30], [0.50, -0.33], [0.55, -0.36]];
+  const WT = [[0.15, 0.17], [0.30, 0.17], [0.42, 0.11], [0.50, 0.03], [0.62, -0.08], [0.76, -0.20], [0.90, -0.33], [0.95, -0.43], [0.80, -0.53]];
+
+  function wing(side) {
+    const sc = side > 0 ? 1 : 1.04;                           // left wing thoda bada = natural asymmetry
+    const layers = [
+      { n: 32, k: 1.00, wf: 0.090, dens: 1.10, gain: 1.15, tipP: 0.85 },   // long flight feathers
+      { n: 30, k: 0.70, wf: 0.080, dens: 0.70, gain: 0.80, tipP: 0.30 },   // secondary coverts
+      { n: 26, k: 0.38, wf: 0.100, dens: 0.60, gain: 0.65, tipP: 0.15 }    // small coverts
+    ];
+    for (const L of layers) {
+      const n = Math.round(L.n * clamp(DENS, 0.6, 1.05));
+      for (let i = 0; i < n; i++) {
+        const u  = clamp((i + R(-0.4, 0.4)) / (n - 1), 0, 1);
+        const b  = spline(WB, u), t = spline(WT, u);
+        const jag = L.k === 1 ? R(0.88, 1.10) : R(0.94, 1.06);          // uneven tips = jagged trailing edge
+        const tx = b[0] + (t[0] - b[0]) * L.k * jag;
+        const ty = b[1] + (t[1] - b[1]) * L.k * jag;
+        const len = Math.hypot(tx - b[0], ty - b[1]);
+        feather(side * b[0] * sc, b[1], side * tx * sc, ty, {
+          w: len * L.wf, dens: L.dens, gain: L.gain, tipP: L.tipP,
+          bend: side * (0.05 + G() * 0.05),
+          hue: u > 0.65 ? 0.08 : u > 0.3 ? 0.32 : 0.58,       // cyan tips -> blue -> violet edge
+          tint0: 0.35, tintMax: 1, spark: 0.07,
+          warm: u > 0.6 ? 0.08 : 0.04
+        });
+      }
+    }
+    // bright leading-edge "arm" line
+    for (let i = 0, n = Math.round(150 * DENS); i < n; i++) {
+      const b = spline(WB, rnd());
+      add(side * b[0] * sc + G() * 0.0015, b[1] + G() * 0.0015, R(190, 255), 0.25, 0.2, rnd() < 0.25 ? 2 : 1, 1.1);
+    }
+  }
+
+  // sparks & splatter flying off the wingtips
+  function dust() {
+    const count = Math.round(520 * DENS);
+    for (const side of [1, -1]) {
+      for (let i = 0; i < count; i++) {
+        const t = spline(WT, R(0.35, 1));
+        const ang = Math.atan2(t[1] + 0.1, t[0] - 0.1) + G() * 0.5;
+        const d = -Math.log(1 - rnd()) * 0.07;
+        const c = rnd();
+        const hue = c < 0.55 ? R(0, 0.25) : c < 0.8 ? R(0.6, 0.8) : R(0.85, 1);
+        add(side * (t[0] + Math.cos(ang) * d), t[1] + Math.sin(ang) * d, 210, R(0.6, 1), hue, rnd() < 0.25 ? 2 : 1, R(0.7, 1.4));
+      }
+      // a few short red / magenta streaks on the top primaries
+      for (let s = 0; s < 14; s++) {
+        const t = spline(WT, R(0.8, 1)), a = R(-1.2, -0.4), len = R(0.02, 0.06), hue = rnd() < 0.6 ? 1 : 0.85;
+        for (let k = 0; k < 8; k++) {
+          const q = k / 7;
+          add(side * (t[0] + Math.cos(a) * len * q), t[1] + Math.sin(a) * len * q, 200, 1, hue, 1, 1.2 - q * 0.6);
+        }
+      }
+    }
+  }
+
+  /* =====================================================================
+     BODY, HEAD, BEAK, EYE, TALONS, TAIL
+     ===================================================================== */
+  const TORSO = [[-0.10, -0.21], [0.02, -0.23], [0.11, -0.19], [0.12, -0.05], [0.10, 0.09], [0.05, 0.20], [-0.06, 0.20], [-0.10, 0.10], [-0.115, -0.05]];
+
+  function body() {
+    // dark mass so the chest doesn't look hollow
+    const fill = Math.round(900 * DENS);
+    for (let i = 0; i < fill; i++) {
+      const p = randomInPoly(TORSO);
+      add(p[0], p[1], Math.pow(rnd(), 2.4) * 80 + 10, rnd() < 0.05 ? 0.6 : 0, 0.3, 1);
+    }
+    // small overlapping chest feathers
+    const n = Math.round(300 * DENS);
+    for (let i = 0; i < n; i++) {
+      const p = randomInPoly(TORSO);
+      const ang = Math.PI / 2 + clamp(p[0] / 0.12, -1, 1) * 0.7 + G() * 0.35;
+      const len = R(0.03, 0.055);
+      feather(p[0], p[1], p[0] + Math.cos(ang) * len, p[1] + Math.sin(ang) * len,
+        { w: len * 0.35, nb: 2, dens: 0.9, tint0: 0.5, tintMax: 0.3, spark: 0.02, warm: 0, hue: 0.3, gain: 0.5 });
+    }
+  }
+
+  let EYE_A = 0, EYE_B = 0;                                     // particle index range of the eye
+
+  function head() {
+    const HX = 0.06, HY = -0.275;
+    const EX = 0.088, EY = -0.287;                             // eye centre
+    // head feathers, swept back and down
+    for (let i = 0, n = Math.round(170 * DENS); i < n; i++) {
+      const a = R(0, Math.PI * 2), r = Math.sqrt(rnd());
+      const x = HX + Math.cos(a) * 0.055 * r, y = HY + Math.sin(a) * 0.05 * r;
+      if (x > 0.102) continue;                                  // beak area khali
+      if (Math.hypot((x - EX) / 0.034, (y - EY + 0.004) / 0.027) < 1) continue;   // dark socket + heavy brow
+      const ang = Math.PI * 0.78 + G() * 0.35, len = R(0.03, 0.055);
+      feather(x, y, x + Math.cos(ang) * len, y + Math.sin(ang) * len,
+        { w: len * 0.32, nb: 2, dens: 0.9, tint0: 0.3, tintMax: 0.3 + r * 0.45, spark: 0.05, warm: 0, hue: 0.14, gain: 0.55 });
+    }
+    // fluffy neck ruff
+    for (let i = 0, n = Math.round(140 * DENS); i < n; i++) {
+      const x = R(-0.02, 0.12), y = R(-0.25, -0.19);
+      const ang = Math.PI / 2 + G() * 0.4 + (0.06 - x) * 2, len = R(0.05, 0.09);
+      feather(x, y, x + Math.cos(ang) * len, y + Math.sin(ang) * len,
+        { w: len * 0.3, nb: 2, dens: 0.9, tint0: 0.4, tintMax: 0.4, spark: 0.04, warm: 0, hue: 0.25, gain: 0.6 });
+    }
+    // glowing blue-white rim along the crown
+    for (let i = 0, n = Math.round(110 * DENS); i < n; i++) {
+      const a = R(Math.PI * 1.05, Math.PI * 1.95);
+      add(HX + Math.cos(a) * 0.057 + G() * 0.002, HY + Math.sin(a) * 0.052 + G() * 0.002,
+          R(170, 240), R(0.55, 0.9), 0.12 + G() * 0.05, rnd() < 0.25 ? 2 : 1, 1.0);
+    }
+    // ---- eye: almond-shaped electric-blue orb with a soft halo (dark socket is left empty above) ----
+    EYE_A = PX.length;
+    const tilt = 0.25, ct = Math.cos(tilt), st = Math.sin(tilt);
+    for (let i = 0; i < 80; i++) {                               // soft halo
+      const a = R(0, Math.PI * 2), r = R(0.012, 0.030) * Math.sqrt(rnd());
+      add(EX + Math.cos(a) * r * 1.2, EY + Math.sin(a) * r, 110, 0.9, 0.25, 1, 0.85);
+    }
+    for (let i = 0; i < 150; i++) {                              // orb: pale-blue core -> electric-blue edge (1px dots so it never blows out to white)
+      const a = R(0, Math.PI * 2), t = Math.sqrt(rnd());
+      const ex = Math.cos(a) * t * 0.016, ey = Math.sin(a) * t * 0.0105;
+      add(EX + ex * ct - ey * st, EY + ex * st + ey * ct,
+          lerp(210, 90, t), 0.62 + 0.38 * t, 0.24, 1, 1.25);
+    }
+    for (let i = 0; i < 40; i++) {                               // crisp outline
+      const a = (i / 40) * Math.PI * 2;
+      const ex = Math.cos(a) * 0.0165, ey = Math.sin(a) * 0.011;
+      add(EX + ex * ct - ey * st, EY + ex * st + ey * ct, 160, 1, 0.24, 1, 1.15);
+    }
+    add(EX - 0.002, EY - 0.001, 255, 0.1, 0.1, 1, 1.6);          // catch-light
+    EYE_B = PX.length;
+
+    // nostril (cere)
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      add(0.140 + Math.cos(a) * 0.006, -0.287 + Math.sin(a) * 0.004, 200, 0.7, 0.25, 1, 1.2);
+    }
+    // gape line: mouth corner running under the eye toward the hook
+    for (let i = 0; i < 36; i++) {
+      const t = i / 35;
+      add(lerp(0.095, 0.172, t), lerp(-0.262, -0.262, t) + Math.sin(t * Math.PI) * 0.004 + G() * 0.0008, 230, 0.2, 0.15, 1, 1.1);
+    }
+    // hooked beak
+    const beak = [[0.105, -0.302], [0.140, -0.302], [0.172, -0.285], [0.188, -0.262], [0.187, -0.240], [0.175, -0.246], [0.168, -0.262], [0.145, -0.262], [0.108, -0.258]];
+    for (let i = 0, n = Math.round(150 * DENS); i < n; i++) {
+      const p = randomInPoly(beak);
+      add(p[0], p[1], R(150, 255), 0.3, 0.12, 1, 1.1);
+    }
+    for (let i = 0; i < beak.length; i++) {                      // outline
+      const a = beak[i], b = beak[(i + 1) % beak.length], steps = 9;
+      for (let k = 0; k < steps; k++) {
+        const t = k / steps;
+        add(lerp(a[0], b[0], t), lerp(a[1], b[1], t), 245, 0.3, 0.15, rnd() < 0.3 ? 2 : 1, 1.15);
+      }
+    }
+  }
+
+  function foot(fx, fy, hipX, hipY) {
+    // feathered thigh
+    for (let i = 0, n = Math.round(60 * DENS); i < n; i++) {
+      const s = rnd(), x = lerp(hipX, fx, s) + G() * 0.02, y = lerp(hipY, fy - 0.03, s);
+      const ang = Math.PI / 2 + G() * 0.2, len = R(0.04, 0.07);
+      feather(x, y, x + Math.cos(ang) * len, y + Math.sin(ang) * len,
+        { w: len * 0.3, nb: 2, dens: 0.9, tint0: 0.6, tintMax: 0.3, spark: 0.03, warm: 0, hue: 0.3, gain: 0.6 });
+    }
+    // three toes with hooked claws
+    for (let j = -1; j <= 1; j++) {
+      const p0 = [fx + j * 0.014, fy - 0.03], p1 = [fx + j * 0.032, fy + 0.005],
+            p2 = [fx + j * 0.026, fy + 0.045], p3 = [fx + j * 0.012, fy + 0.062];
+      const n = Math.round(60 * DENS) + 12;
+      for (let k = 0; k < n; k++) {
+        const p = bezier(p0, p1, p2, p3, k / (n - 1));
+        add(p[0] + G() * 0.002, p[1] + G() * 0.002, R(170, 255), 0.7, 0.22 + G() * 0.06, rnd() < 0.3 ? 2 : 1, 1.25);
+      }
+      add(p3[0], p3[1], 255, 0.3, 0.2, 2, 1.6);
+    }
+  }
+
+  function tail() {
+    const TB = [[-0.07, 0.16], [-0.03, 0.18], [0.02, 0.19], [0.05, 0.19]];
+    const TT = [[-0.32, 0.40], [-0.26, 0.48], [-0.15, 0.54], [-0.04, 0.53], [0.04, 0.46], [0.10, 0.38]];
+    const layers = [{ n: 20, k: 1.0, dens: 1.1, gain: 1.05 }, { n: 18, k: 0.62, dens: 0.7, gain: 0.8 }];
+    for (const L of layers) {
+      const n = Math.round(L.n * clamp(DENS, 0.6, 1.05));
+      for (let i = 0; i < n; i++) {
+        const u = clamp((i + R(-0.3, 0.3)) / (n - 1), 0, 1);
+        const b = spline(TB, u), t = spline(TT, u);
+        const tx = b[0] + (t[0] - b[0]) * L.k, ty = b[1] + (t[1] - b[1]) * L.k;
+        feather(b[0], b[1], tx, ty, {
+          w: Math.hypot(tx - b[0], ty - b[1]) * 0.11, tipP: 0.8, dens: L.dens, gain: L.gain,
+          bend: G() * 0.04, hue: 0.12, tint0: 0.45, tintMax: 0.9, spark: 0.05, warm: 0.02
+        });
+      }
+    }
+  }
+
+  /* ----- build the whole bird ----- */
+  body();
+  wing(1); wing(-1);
+  tail();
+  const HEAD_A = PX.length;
+  head();
+  const HEAD_B = PX.length;
+  foot(-0.045, 0.235, -0.04, 0.12);
+  foot(0.125, 0.23, 0.085, 0.10);
+  dust();
+
+  /* =====================================================================
+     Typed arrays (fast per-frame loop)
+     ===================================================================== */
+  const N   = PX.length;
+  const ux  = Float32Array.from(PX), uy = Float32Array.from(PY);
+  const cr  = Uint8ClampedArray.from(PR), cg = Uint8ClampedArray.from(PG), cb = Uint8ClampedArray.from(PB);
+  const sz  = Uint8Array.from(PS);
+  const ph  = new Float32Array(N).map(() => rnd() * 50);        // twinkle phase
+  const fl  = new Float32Array(N);                               // wing-flap weight (0 = body)
+  const cl  = new Float32Array(N), sl = new Float32Array(N);     // cos/sin of flap lag (wave travels root -> tip)
+  const role = new Uint8Array(N);                                // 0 body/wings, 1 head, 2 eye
+  for (let i = 0; i < N; i++) {
+    const ax = Math.max(0, Math.abs(ux[i]) - 0.08);
+    fl[i] = Math.pow(ax, 1.4);
+    cl[i] = Math.cos(ax * 2.2); sl[i] = Math.sin(ax * 2.2);
+  }
+  for (let i = HEAD_A; i < HEAD_B; i++) role[i] = 1;
+  for (let i = EYE_A;  i < EYE_B;  i++) role[i] = 2;
+  const px = new Float32Array(N), py = new Float32Array(N), vx = new Float32Array(N), vy = new Float32Array(N);
+
+  // wingtip anchor points where energy streams are born
+  const TIPS = [];
+  for (const side of [1, -1]) for (let i = 0; i < 40; i++) {
+    const p = spline(WT, R(0.7, 1));
+    TIPS.push([side * p[0] * (side > 0 ? 1 : 1.04), p[1]]);
+  }
+  const PALT = Array.from({ length: 64 }, (_, k) => pal(k / 63));
+
+  // energy-stream pool (ring buffer)
+  const M = 700;
+  const sx = new Float32Array(M), sy = new Float32Array(M), svx = new Float32Array(M), svy = new Float32Array(M);
+  const slife = new Float32Array(M), smax = new Float32Array(M).fill(1), sph = new Float32Array(M);
+  const scr = new Uint8Array(M), scg = new Uint8Array(M), scb = new Uint8Array(M);
+  let si = 0, emitAcc = 0;
+
+  /* =====================================================================
+     Layout / resize
+     ===================================================================== */
+  let cw = 0, ch = 0, S = 1, cx = 0, cy = 0, img, b32, firstLayout = true;
+
+  function layout() {
+    const rect = banner.getBoundingClientRect();
+    const dpr  = Math.min(window.devicePixelRatio || 1, 1.5);
+    let w = Math.round(rect.width * dpr), h = Math.round(rect.height * dpr);
+    const maxPx = 3.2e6;                                        // performance cap
+    if (w * h > maxPx) { const k = Math.sqrt(maxPx / (w * h)); w = Math.round(w * k); h = Math.round(h * k); }
+    cw = canvas.width = w; ch = canvas.height = h;
+
+    img = ctx.createImageData(w, h);
+    b32 = new Uint32Array(img.data.buffer);
+
+    b1.width = Math.max(1, w >> 1); b1.height = Math.max(1, h >> 1);
+    b2.width = Math.max(1, w >> 2); b2.height = Math.max(1, h >> 2);
+    b3.width = Math.max(1, w >> 3); b3.height = Math.max(1, h >> 3);
+
+    S  = Math.min(w * (rect.width < 720 ? 0.44 : 0.30), h * 0.78);   // 1 unit = S pixels
+    cx = w * 0.51;
+    cy = h * 0.5 + 0.015 * S;
+
+    for (let i = 0; i < N; i++) {
+      const scatter = firstLayout && !reduceMotion ? 0.6 : 0;         // intro: pehle bikhre hue
+      px[i] = cx + (ux[i] + G() * scatter) * S;
+      py[i] = cy + (uy[i] + G() * scatter) * S;
+      vx[i] = vy[i] = 0;
+    }
+    slife.fill(0);
+    firstLayout = false;
+  }
+
+  /* =====================================================================
+     Pointer interaction
+     ===================================================================== */
+  const ptr = { x: -1e5, y: -1e5, on: false };
+  function setPtr(e) {
+    const r = canvas.getBoundingClientRect();
+    ptr.x = (e.clientX - r.left) * (cw / r.width);
+    ptr.y = (e.clientY - r.top)  * (ch / r.height);
+    ptr.on = true;
+  }
+  banner.addEventListener('pointermove', setPtr);
+  banner.addEventListener('pointerleave', () => { ptr.on = false; });
+  banner.addEventListener('pointerdown', e => {                   // click / tap = burst
+    setPtr(e);
+    const rad = 0.35 * S, r2 = rad * rad;
+    for (let i = 0; i < N; i++) {
+      const dx = px[i] - ptr.x, dy = py[i] - ptr.y, d2 = dx * dx + dy * dy;
+      if (d2 < r2 && d2 > 1) {
+        const d = Math.sqrt(d2), p = 1 - d / rad, f = p * R(0.4, 1) * CFG.burstForce;
+        vx[i] += dx / d * f; vy[i] += dy / d * f;
+      }
+    }
+  });
+
+  /* ---------- label hover / focus -> wings glow in that label's colour ---------- */
+  let hl = 0, hlTarget = 0, hlTimer = 0;
+  let hlR = 255, hlG = 255, hlB = 255, hlTR = 255, hlTG = 255, hlTB = 255;
+  document.querySelectorAll('.tag').forEach(tag => {
+    const m = (getComputedStyle(tag).color.match(/[\d.]+/g) || [255, 255, 255]).slice(0, 3).map(Number);
+    const k = 255 / Math.max(m[0], m[1], m[2], 1);                 // normalise so dim labels (SYSTEMS) still glow
+    const on  = () => { clearTimeout(hlTimer); hlTR = m[0] * k; hlTG = m[1] * k; hlTB = m[2] * k; hlTarget = 1; };
+    const off = () => { clearTimeout(hlTimer); hlTimer = setTimeout(() => { hlTarget = 0; }, 350); };
+    tag.addEventListener('pointerenter', on);
+    tag.addEventListener('pointerleave', off);
+    tag.addEventListener('focus', on);
+    tag.addEventListener('blur', off);
+  });
+
+  /* =====================================================================
+     Render loop
+     ===================================================================== */
+  function plot(idx, r, g, b) {                                   // additive blend, clamped
+    const p = b32[idx];
+    let R_ = (p & 255) + r, G_ = ((p >> 8) & 255) + g, B_ = ((p >> 16) & 255) + b;
+    if (R_ > 255) R_ = 255; if (G_ > 255) G_ = 255; if (B_ > 255) B_ = 255;
+    b32[idx] = 0xFF000000 | (B_ << 16) | (G_ << 8) | R_;
+  }
+
+  // one energy particle leaves a wingtip (follows the flapping wing)
+  function spawn(sa, ca, bob, amp) {
+    const tp = TIPS[(Math.random() * TIPS.length) | 0];
+    const ax = Math.max(0, Math.abs(tp[0]) - 0.08), side = tp[0] < 0 ? -1 : 1;
+    const lift = Math.pow(ax, 1.4) * amp * (sa * Math.cos(ax * 2.2) - ca * Math.sin(ax * 2.2));
+    const j = si; si = (si + 1) % M;
+    sx[j] = cx + tp[0] * S + (Math.random() - 0.5) * 0.01 * S;
+    sy[j] = cy + (tp[1] + bob - lift) * S + (Math.random() - 0.5) * 0.01 * S;
+    const a = -0.9 + Math.random() * 1.1, sp = (0.05 + Math.random() * 0.11) * S;   // fan: up + outward
+    svx[j] = side * Math.cos(a) * sp; svy[j] = Math.sin(a) * sp;
+    smax[j] = slife[j] = 1.4 + Math.random() * 1.8;
+    sph[j] = Math.random() * 6.28;
+    const c = PALT[((Math.random() < 0.7 ? Math.random() * 0.45 : 0.55 + Math.random() * 0.45) * 63) | 0];
+    scr[j] = c[0]; scg[j] = c[1]; scb[j] = c[2];
+  }
+
+  let last = performance.now(), time = 0;
+  let headAng = 0, headDx = 0, headDy = 0, eyeX = 0, eyeY = 0;
+  const PVX = 0.035, PVY = -0.21;                                  // neck pivot the head rotates around
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
+    const f = dt * 60;                                              // frame-rate independent
+    const ramp = reduceMotion ? 1 : Math.min(1, time / CFG.assembleSeconds);
+    const k    = lerp(0.006, 0.05, ramp * ramp);
+    const damp = Math.pow(0.83, f);
+    const mR   = CFG.mouseRadius * S, mR2 = mR * mR, on = ptr.on;
+
+    // wing flap: sin wave that travels from shoulder to tip; body dips as wings rise
+    const wph = time * CFG.flapSpeed, sa = Math.sin(wph), ca = Math.cos(wph);
+    const amp = reduceMotion ? 0 : CFG.flap;
+    const bob = reduceMotion ? 0 : sa * 0.012;
+
+    // head + eye follow the cursor
+    let tAng = 0, tHx = 0, tHy = 0, tEx = 0, tEy = 0;
+    if (on && CFG.headFollow && !reduceMotion) {
+      const dxU = (ptr.x - (cx + 0.06 * S)) / S, dyU = (ptr.y - (cy - 0.275 * S)) / S;
+      tAng = clamp(dyU * 0.7, -0.3, 0.3);                          // cursor above = beak lifts
+      tHx  = clamp(dxU * 0.02, -0.02, 0.02);  tHy = clamp(dyU * 0.015, -0.015, 0.015);
+      tEx  = clamp(dxU * 0.02, -0.006, 0.006); tEy = clamp(dyU * 0.02, -0.004, 0.004);
+    }
+    const e = 1 - Math.pow(0.9, f);
+    headAng += (tAng - headAng) * e; headDx += (tHx - headDx) * e; headDy += (tHy - headDy) * e;
+    eyeX += (tEx - eyeX) * e; eyeY += (tEy - eyeY) * e;
+    const hAng = headAng + (reduceMotion ? 0 : Math.sin(time * 0.7) * 0.02);
+    const hca = Math.cos(hAng), hsa = Math.sin(hAng);
+
+    // label highlight easing
+    hl += (hlTarget - hl) * (1 - Math.pow(0.85, f));
+    const ec = 1 - Math.pow(0.85, f);
+    hlR += (hlTR - hlR) * ec; hlG += (hlTG - hlG) * ec; hlB += (hlTB - hlB) * ec;
+
+    b32.fill(0xFF000000);
+
+    for (let i = 0; i < N; i++) {
+      // animated home position (flap + body bob + head look)
+      let X = ux[i], Y = uy[i] + bob;
+      const fi = fl[i];
+      if (fi > 0) Y -= fi * amp * (sa * cl[i] - ca * sl[i]);
+      const rl = role[i];
+      if (rl) {
+        const rx = X - PVX, ry = Y - PVY;
+        X = PVX + rx * hca - ry * hsa + headDx;
+        Y = PVY + rx * hsa + ry * hca + headDy;
+        if (rl === 2) { X += eyeX; Y += eyeY; }
+      }
+      const tx = cx + X * S, ty = cy + Y * S;
+
+      let x = px[i], y = py[i], vxi = vx[i], vyi = vy[i];
+      if (on) {
+        const dx = x - ptr.x, dy = y - ptr.y, d2 = dx * dx + dy * dy;
+        if (d2 < mR2 && d2 > 0.01) {
+          const d = Math.sqrt(d2), p = 1 - d / mR, push = p * p * CFG.mouseForce * f * (rl ? 0.3 : 1);
+          vxi += dx / d * push; vyi += dy / d * push;
+        }
+      }
+      vxi = (vxi + (tx - x) * k * f) * damp;
+      vyi = (vyi + (ty - y) * k * f) * damp;
+      x += vxi * f; y += vyi * f;
+      px[i] = x; py[i] = y; vx[i] = vxi; vy[i] = vyi;
+
+      const ix = x | 0, iy = y | 0;
+      if (ix < 0 || iy < 0 || ix >= cw - 1 || iy >= ch - 1) continue;
+
+      const tw   = 0.8 + 0.2 * Math.sin(time * 1.6 + ph[i]);        // twinkle
+      const heat = 1 + Math.min(1.2, (Math.abs(vxi) + Math.abs(vyi)) * 0.12);   // moving = brighter
+      let m = tw * heat, r = cr[i], g = cg[i], b = cb[i];
+
+      if (hl > 0.01 && fi > 0) {                                     // label hover: colour wave rolling out along the wings
+        const wv = hl * (0.55 + 0.45 * Math.sin(time * 4.5 - Math.abs(ux[i]) * 7));
+        r += (hlR - r) * 0.85 * wv; g += (hlG - g) * 0.85 * wv; b += (hlB - b) * 0.85 * wv;
+        m *= 1 + 0.7 * wv;
+      }
+
+      const idx = iy * cw + ix, rr = (r * m) | 0, gg = (g * m) | 0, bb = (b * m) | 0;
+      plot(idx, rr, gg, bb);
+      if (sz[i] > 1) { plot(idx + 1, rr, gg, bb); plot(idx + cw, rr, gg, bb); plot(idx + cw + 1, rr, gg, bb); }
+    }
+
+    // energy streams: fade-in, drift up/outward on a gentle curl, fade-out, short comet tail
+    if (!reduceMotion && CFG.streams > 0 && time > CFG.assembleSeconds * 0.7) {
+      emitAcc += CFG.streams * clamp(DENS, 0.5, 1.1) * dt;
+      while (emitAcc >= 1) { emitAcc -= 1; spawn(sa, ca, bob, amp); }
+    }
+    const drag = Math.pow(0.55, dt);
+    for (let i = 0; i < M; i++) {
+      if (slife[i] <= 0) continue;
+      slife[i] -= dt;
+      const l = slife[i] / smax[i];
+      if (l <= 0) continue;
+      svy[i] += Math.sin(time * 2.2 + sph[i]) * 0.07 * S * dt;
+      svx[i] *= drag; svy[i] *= drag;
+      sx[i] += svx[i] * dt; sy[i] += svy[i] * dt;
+      const fade = Math.min(1, (1 - l) * 6) * l * 1.25;
+      for (let t = 0; t < 3; t++) {
+        const ix = (sx[i] - svx[i] * 0.12 * t) | 0, iy = (sy[i] - svy[i] * 0.12 * t) | 0;
+        if (ix < 0 || iy < 0 || ix >= cw - 1 || iy >= ch - 1) break;
+        const q = fade * (t === 0 ? 1 : t === 1 ? 0.5 : 0.25);
+        plot(iy * cw + ix, (scr[i] * q) | 0, (scg[i] * q) | 0, (scb[i] * q) | 0);
+      }
+    }
+
+    ctx.putImageData(img, 0, 0);
+
+    if (CFG.bloom) {                                                // downscale chain = blur, add back
+      b1x.drawImage(canvas, 0, 0, b1.width, b1.height);
+      b2x.drawImage(b1, 0, 0, b2.width, b2.height);
+      b3x.drawImage(b2, 0, 0, b3.width, b3.height);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = CFG.glow;
+      ctx.drawImage(b2, 0, 0, cw, ch);
+      ctx.drawImage(b2, 0, 0, cw, ch);
+      ctx.drawImage(b3, 0, 0, cw, ch);
+      ctx.drawImage(b3, 0, 0, cw, ch);
+      ctx.drawImage(b3, 0, 0, cw, ch);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  layout();
+  new ResizeObserver(layout).observe(banner);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
